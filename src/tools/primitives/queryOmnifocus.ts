@@ -93,6 +93,7 @@ export interface QueryOmnifocusParams {
   filters?: {
     projectId?: string;
     projectName?: string;
+    taskId?: string;
     taskName?: string;
     folderId?: string;
     folderName?: string;
@@ -172,7 +173,7 @@ export function validateFields(entity: 'tasks' | 'projects' | 'folders', fields?
 // folders — so the query ran unfiltered and the whole set came back as if it
 // were the answer. It is now refused, naming the filters that do apply.
 const ALL_TASK_FILTERS = [
-  'projectId', 'projectName', 'taskName', 'folderId', 'folderName', 'tags', 'status',
+  'projectId', 'projectName', 'taskId', 'taskName', 'folderId', 'folderName', 'tags', 'status',
   'flagged', 'dueWithin', 'deferredUntil', 'plannedWithin', 'hasNote', 'inbox', 'dueOn',
   'deferOn', 'plannedOn', 'addedWithin', 'addedOn', 'isRepeating', 'completedWithin',
   'completedOn', 'droppedWithin', 'droppedOn',
@@ -180,9 +181,9 @@ const ALL_TASK_FILTERS = [
 export const FILTERS_BY_ENTITY: Record<'tasks' | 'projects' | 'folders', string[]> = {
   tasks: ALL_TASK_FILTERS,
   // Projects have no planned date, are never in the inbox, and are matched by
-  // projectName rather than taskName.
+  // projectId/projectName rather than taskId/taskName.
   projects: ALL_TASK_FILTERS.filter(
-    f => !['taskName', 'plannedWithin', 'plannedOn', 'inbox'].includes(f)
+    f => !['taskId', 'taskName', 'plannedWithin', 'plannedOn', 'inbox'].includes(f)
   ).concat('reviewDue'),
   folders: ['folderId', 'folderName', 'status'],
 };
@@ -499,7 +500,13 @@ function generateTaskCandidates(filters: any, includeCompleted: boolean): string
   // flattenedTasks includes each project's root task, but
   // project.flattenedTasks does not, so the project narrowings add it back
   // (_projectTasks). tag.remainingTasks already includes a tagged project's.
-  if (filters.projectId) {
+  if (filters.taskId) {
+    // A direct lookup, where taskName has to walk every task.
+    const safeId = escapeJXA(filters.taskId);
+    body = `
+      var t = Task.byIdentifier("${safeId}");
+      return t ? [t] : [];`;
+  } else if (filters.projectId) {
     // Either id namespace, as in the projectId filter: a Project id, or the
     // AppleScript-namespace id of the project's root task.
     const safeId = escapeJXA(filters.projectId);
@@ -596,6 +603,10 @@ function generateFilterConditions(entity: string, filters: any): string {
           return false;
         }
       `);
+    }
+
+    if (filters.taskId) {
+      conditions.push(`if (item.id.primaryKey !== "${escapeJXA(filters.taskId)}") return false;`);
     }
 
     if (filters.taskName) {

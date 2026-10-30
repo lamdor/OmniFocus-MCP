@@ -71,6 +71,17 @@ describe('generateFilterConditions - taskName', () => {
 // ============================================================
 // generateFilterConditions - injection safety (all filters)
 // ============================================================
+describe('generateFilterConditions - taskId', () => {
+  it('matches the exact id, escaped', () => {
+    const result = generateFilterConditions('tasks', { taskId: 'a"b' });
+    expect(result).toContain('if (item.id.primaryKey !== "a\\"b") return false;');
+  });
+
+  it('is refused for projects', () => {
+    expect(primitives.validateFilters('projects', { taskId: 'x' })).toMatch(/taskId/);
+  });
+});
+
 describe('generateFilterConditions - injection safety', () => {
   it('escapes projectName with quotes', () => {
     const result = generateFilterConditions('tasks', { projectName: 'a"b' });
@@ -882,7 +893,9 @@ describe('generateTaskCandidates', () => {
       Task: {
         byIdentifier: (id: string) => {
           const p = projects.find(p => p.task.id.primaryKey === id);
-          return p ? { project: p } : null;
+          if (p) return Object.assign({}, p.task, { project: p });
+          const known = [t1, t2, t3, ...inboxTop, inboxSub];
+          return known.find(t => t.id.primaryKey === id) ?? null;
         },
       },
       flattenedTags: collection(tags),
@@ -902,6 +915,13 @@ describe('generateTaskCandidates', () => {
     expect(candidates({})).toBe('flattenedTasks');
     expect(candidates({ taskName: 'x', flagged: true, plannedOn: 0 })).toBe('flattenedTasks');
     expect(candidates({ inbox: false })).toBe('flattenedTasks');
+  });
+
+  it('looks up taskId directly, ahead of every other narrowing', () => {
+    expect(candidates({ taskId: 'i1-sub' })).toEqual(['i1-sub']);
+    expect(candidates({ taskId: 't2', tags: ['Waiting'], projectId: 'pWork' })).toEqual(['t2']);
+    expect(candidates({ taskId: 'rWork' })).toEqual(['rWork']);
+    expect(candidates({ taskId: 'nope' })).toEqual([]);
   });
 
   it('starts from the project for projectId, root task included', () => {
